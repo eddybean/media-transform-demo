@@ -1,17 +1,20 @@
-import jsQR, { QRCode } from 'jsqr';
+import BarcodeDetector from 'barcode-detector';
 
-const qrLineMargin = 6;
-const qrLineWidth = 6;
+const qrLineWidth = 4;
 const qrLineColor = 'red';
-const qrTextFont = '28px Arial';
+const qrTextFont = '26px Arial';
 
 export class MediaStreamTrackTransformer {
   canvas: OffscreenCanvas;
   ctx: OffscreenCanvasRenderingContext2D;
+  barcodeDetector: BarcodeDetector;
 
   constructor() {
     this.canvas = new OffscreenCanvas(1, 1);
-    this.ctx = this.canvas.getContext('2d', { willReadFrequently: true })!;
+    this.ctx = this.canvas.getContext('2d')!;
+    this.barcodeDetector = new BarcodeDetector({
+      formats: ['qr_code'],
+    });
   }
 
   setupTransformer(videoTrack: MediaStreamVideoTrack) {
@@ -21,8 +24,7 @@ export class MediaStreamTrackTransformer {
 
     const transformer = new TransformStream({
       async transform(videoFrame, controller) {
-        const newFrame = await self.processingReadQR(videoFrame);
-        videoFrame.close();
+        const newFrame = await self.processingDetectQR(videoFrame);
         controller.enqueue(newFrame);
       },
     });
@@ -34,63 +36,50 @@ export class MediaStreamTrackTransformer {
     return new MediaStream([trackGenerator]);
   }
 
-  async processingReadQR(videoFrame: VideoFrame) {
+  async processingDetectQR(videoFrame: VideoFrame) {
     const timestamp = videoFrame.timestamp;
+    const width = videoFrame.displayWidth;
+    const height = videoFrame.displayHeight;
     const bitmap = await createImageBitmap(videoFrame);
-    const { width, height } = {
-      width: videoFrame.displayWidth,
-      height: videoFrame.displayHeight,
-    };
 
+    const detectedBarcodes = await this.barcodeDetector.detect(bitmap);
+    // QRコードが検出されないときは元のVideoFrameをそのまま返す
+    if (!detectedBarcodes.length) {
+      bitmap.close();
+      return videoFrame;
+    }
+    videoFrame.close();
+
+    // videoFrameをCanvasへ描画する
     this.canvas.width = width;
     this.canvas.height = height;
     this.ctx.drawImage(bitmap, 0, 0, width, height);
     bitmap.close();
 
-    const code = jsQR(
-      this.ctx.getImageData(0, 0, width, height).data,
-      width,
-      height,
-    );
-    if (code) {
-      this.drawQRRectangle(code);
-    }
+    await this.highlightBarcode(detectedBarcodes);
 
     const newBitmap = await createImageBitmap(this.canvas);
     return new VideoFrame(newBitmap, { timestamp });
   }
 
-  drawQRRectangle(code: QRCode) {
-    this.ctx.strokeStyle = qrLineColor;
-    this.ctx.fillStyle = qrLineColor;
-    this.ctx.lineWidth = qrLineWidth;
-    this.ctx.font = qrTextFont;
+  async highlightBarcode(detectedBarcodes: any) {
+    const floor = Math.floor;
+    const ctx = this.ctx;
+    ctx.strokeStyle = qrLineColor;
+    ctx.fillStyle = qrLineColor;
+    ctx.lineWidth = qrLineWidth;
+    ctx.font = qrTextFont;
 
-    this.ctx.fillText(
-      code.data,
-      code.location.topLeftCorner.x - qrLineMargin * 2,
-      code.location.topLeftCorner.y - qrLineMargin * 3,
-    );
-
-    this.ctx.beginPath();
-    this.ctx.moveTo(
-      code.location.topLeftCorner.x - qrLineMargin,
-      code.location.topLeftCorner.y - qrLineMargin,
-    );
-    this.ctx.lineTo(
-      code.location.topRightCorner.x + qrLineMargin,
-      code.location.topRightCorner.y - qrLineMargin,
-    );
-    this.ctx.lineTo(
-      code.location.bottomRightCorner.x + qrLineMargin,
-      code.location.bottomRightCorner.y + qrLineMargin,
-    );
-    this.ctx.lineTo(
-      code.location.bottomLeftCorner.x - qrLineMargin,
-      code.location.bottomLeftCorner.y + qrLineMargin,
-    );
-    this.ctx.closePath();
-
-    this.ctx.stroke();
+    detectedBarcodes.map((detectedBarcode: any) => {
+      const { x, y, width, height } = detectedBarcode.boundingBox;
+      ctx.strokeRect(floor(x), floor(y), floor(width), floor(height));
+      const text = detectedBarcode.rawValue;
+      const dimensions = ctx.measureText(text);
+      ctx.fillText(
+        text,
+        floor(x + width / 2 - dimensions.width / 2),
+        floor(y) + height + 20,
+      );
+    });
   }
 }
