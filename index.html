@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="stylesheet" type="text/css" href="/src/style.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>WebRTC Local P2P</title>
+  </head>
+  <body>
+    <div id="app">
+      <section>
+        <button id="btn-connect">connect</button>
+      </section>
+      <section>
+        <h2>local(camera)</h2>
+        <video id="local-video" autoplay muted playsinline></video>
+      </section>
+      <section>
+        <h2>remote(stream)</h2>
+        <video id="remote-video" autoplay playsinline></video>
+      </section>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
